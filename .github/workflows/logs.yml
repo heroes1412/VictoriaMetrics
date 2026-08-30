@@ -1,4 +1,4 @@
-name: victoria-logs
+name: logs
 
 on:
   # Chạy tự động 0h00 ngày 1 hàng tháng (giờ UTC)
