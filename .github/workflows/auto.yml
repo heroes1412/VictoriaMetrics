@@ -134,7 +134,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ matrix.version }}
-          name: VictoriaMetrics ${{ matrix.version }}
+          name: Metrics ${{ matrix.version }}
           body: |
             Job Done:
             - **VictoriaMetrics Version**: `${{ matrix.version }}`
