@@ -61,7 +61,7 @@ jobs:
       - name: Download Remote Dockerfile
         if: steps.check_release.outputs.exists == 'false'
         run: |
-          curl -fSL "https://github.com/heroes1412/VictoriaLogs/releases/download/tool/Dockerfile" -o Dockerfile
+          curl -fSL "https://github.com/heroes1412/VictoriaMetrics/releases/download/tool/Dockerfile-log" -o Dockerfile
           sed -i "s|victoriametrics/victoria-logs:latest|victoriametrics/victoria-logs:${{ matrix.version }}-enterprise|g" Dockerfile
           echo "Đã tải và cập nhật Dockerfile cho version ${{ matrix.version }} thành công!"
           head -n 5 Dockerfile
