@@ -1,5 +1,4 @@
-name: Remote Docker Build & Release Daily
-
+name: metrics
 on:
   # Chạy tự động 0h00 ngày 1 hàng tháng (giờ UTC)
   schedule:
