@@ -114,7 +114,7 @@ jobs:
         if: steps.check_release.outputs.exists == 'false'
         run: |
           VERSION="${{ matrix.version }}"
-          IMAGE="h2372/VictoriaLogs-enterprise:${VERSION}-enterprise"
+          IMAGE="h2372/victorialogs-enterprise:${VERSION}-enterprise"
 
           echo "Trích xuất binary cho linux/amd64..."
           docker create --name temp_amd64 --platform linux/amd64 $IMAGE
