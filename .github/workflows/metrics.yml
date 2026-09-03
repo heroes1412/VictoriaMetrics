@@ -16,25 +16,27 @@ jobs:
       - name: Fetch 3 latest VictoriaMetrics versions
         id: fetch
         run: |
-          RELEASES_JSON=$(curl -s https://api.github.com/repos/VictoriaMetrics/VictoriaMetrics/releases)
+          # Thêm Authorization token để tránh bị dính 403 GitHub API rate limit
+          RELEASES_JSON=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/VictoriaMetrics/VictoriaMetrics/releases)
           
-          # Lấy 4 version mới nhất (loại bỏ chữ 'v' ở đầu)
+          # Lấy 3 version mới nhất (loại bỏ chữ 'v' ở đầu)
           #VERSIONS=$(echo "$RELEASES_JSON" | jq -c '[ .[] | select(.prerelease == false and .draft == false) | .tag_name | ltrimstr("v") ] | .[:4]')
-          VERSIONS=$(echo "$RELEASES_JSON" | jq -c '[ .[] | select(.prerelease == false and .draft == false) | .tag_name ] | .[:4]')
+          VERSIONS=$(echo "$RELEASES_JSON" | jq -c '[ .[] | select(.prerelease == false and .draft == false) | .tag_name ] | .[:3]')
           LATEST=$(echo "$VERSIONS" | jq -r '.[0]')
 
           echo "versions=$VERSIONS" >> $GITHUB_OUTPUT
           echo "latest_version=$LATEST" >> $GITHUB_OUTPUT
-          echo "Top 4 VictoriaMetrics Versions: $VERSIONS"
+          echo "Top 3 VictoriaMetrics Versions: $VERSIONS"
           echo "Latest VictoriaMetrics Version: $LATEST"
 
   build-and-push:
     needs: get-versions
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
+      max-parallel: 1
       matrix:
         version: ${{ fromJson(needs.get-versions.outputs.versions) }}
-      max-parallel: 1
     # Thêm permissions để GitHub Actions có quyền đọc/ghi Release và Contents
     permissions:
       contents: write
@@ -60,7 +62,7 @@ jobs:
       - name: Download Remote Dockerfile
         if: steps.check_release.outputs.exists == 'false'
         run: |
-          curl -fSL "https://github.com/heroes1412/VictoriaMetrics/releases/download/tool/Dockerfile" -o Dockerfile
+          curl --retry 3 --retry-delay 2 --retry-connrefused -fSL "https://github.com/heroes1412/VictoriaMetrics/releases/download/tool/Dockerfile" -o Dockerfile
           sed -i "s|victoriametrics/victoria-metrics:latest|victoriametrics/victoria-metrics:${{ matrix.version }}-enterprise|g" Dockerfile
           echo "Đã tải và cập nhật Dockerfile cho version ${{ matrix.version }} thành công!"
           head -n 5 Dockerfile
@@ -135,16 +137,22 @@ jobs:
           VERSION="${{ matrix.version }}"
 
           for ARCH in amd64 arm64; do
+            echo "=================================================="
             echo "Đang xử lý cluster binary cho kiến trúc $ARCH..."
-            curl -fSL "https://github.com/heroes1412/VictoriaMetrics/releases/download/tool/victoria-enterprise-lite-linux-${ARCH}" -o "./victoria-enterprise-lite-linux-${ARCH}"
+            echo "=================================================="
+
+            echo "Tải công cụ patch: https://github.com/heroes1412/VictoriaMetrics/releases/download/tool/victoria-enterprise-lite-linux-${ARCH}"
+            curl --retry 3 --retry-delay 2 --retry-connrefused -fSL "https://github.com/heroes1412/VictoriaMetrics/releases/download/tool/victoria-enterprise-lite-linux-${ARCH}" -o "./victoria-enterprise-lite-linux-${ARCH}"
             chmod +x "./victoria-enterprise-lite-linux-${ARCH}"
 
             TAR_NAME="victoria-metrics-linux-${ARCH}-${VERSION}-cluster.tar.gz"
-            curl -fSL "https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/${VERSION}/${TAR_NAME}" -o "$TAR_NAME"
+            echo "Tải cluster archive: https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/${VERSION}/${TAR_NAME}"
+            curl --retry 3 --retry-delay 2 --retry-connrefused -fSL "https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/${VERSION}/${TAR_NAME}" -o "$TAR_NAME"
 
             mkdir -p "cluster_${ARCH}"
             tar -xzf "$TAR_NAME" -C "cluster_${ARCH}"
 
+            echo "Thực hiện patch vminsert-prod, vmselect-prod, vmstorage-prod..."
             ./victoria-enterprise-lite-linux-${ARCH} patch "./cluster_${ARCH}/vminsert-prod"
             ./victoria-enterprise-lite-linux-${ARCH} patch "./cluster_${ARCH}/vmselect-prod"
             ./victoria-enterprise-lite-linux-${ARCH} patch "./cluster_${ARCH}/vmstorage-prod"
@@ -152,6 +160,7 @@ jobs:
             rm -f "$TAR_NAME"
             tar -czf "$TAR_NAME" -C "cluster_${ARCH}" vminsert-prod vmselect-prod vmstorage-prod
             rm -rf "cluster_${ARCH}" "./victoria-enterprise-lite-linux-${ARCH}"
+            echo "Đã đóng gói thành công $TAR_NAME"
           done
 
       # 10. Tự động tạo Git Tag và GitHub Release tương ứng với version 
