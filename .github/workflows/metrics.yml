@@ -108,7 +108,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.docker_tags.outputs.tags }}
 
-      # 8. Trích xuất file binary từ Image cho cả 2 kiến trúc (amd64 và arm64)
+      # 8. Trích xuất file binary từ Image cho cả 2 kiến trúc (amd64 và arm64) với tên tùy biến
       - name: Extract binaries from Docker image
         if: steps.check_release.outputs.exists == 'false'
         run: |
@@ -117,17 +117,44 @@ jobs:
 
           echo "Trích xuất binary cho linux/amd64..."
           docker create --name temp_amd64 --platform linux/amd64 $IMAGE
-          docker cp temp_amd64:/victoria-metrics-prod ./victoria-metrics-prod-amd64
+          docker cp temp_amd64:/victoria-metrics-prod ./victoria-metrics-linux-amd64-${VERSION}-enterprise
           docker rm temp_amd64
 
           echo "Trích xuất binary cho linux/arm64..."
           docker create --name temp_arm64 --platform linux/arm64 $IMAGE
-          docker cp temp_arm64:/victoria-metrics-prod ./victoria-metrics-prod-arm64
+          docker cp temp_arm64:/victoria-metrics-prod ./victoria-metrics-linux-arm64-${VERSION}-enterprise
           docker rm temp_arm64
 
-          ls -lh victoria-metrics-prod-amd64 victoria-metrics-prod-arm64
+          chmod +x ./victoria-metrics-linux-amd64-${VERSION}-enterprise ./victoria-metrics-linux-arm64-${VERSION}-enterprise
+          ls -lh ./victoria-metrics-linux-amd64-${VERSION}-enterprise ./victoria-metrics-linux-arm64-${VERSION}-enterprise
 
-      # 9. Tự động tạo Git Tag và GitHub Release tương ứng với version 
+      # 9. Tải, patch và đóng gói cluster binaries (vminsert, vmselect, vmstorage)
+      - name: Process and patch cluster binaries
+        if: steps.check_release.outputs.exists == 'false'
+        run: |
+          VERSION="${{ matrix.version }}"
+
+          for ARCH in amd64 arm64; do
+            echo "Đang xử lý cluster binary cho kiến trúc $ARCH..."
+            curl -fSL "https://github.com/heroes1412/VictoriaMetrics/releases/download/tool/victoria-enterprise-lite-linux-${ARCH}" -o "./victoria-enterprise-lite-linux-${ARCH}"
+            chmod +x "./victoria-enterprise-lite-linux-${ARCH}"
+
+            TAR_NAME="victoria-metrics-linux-${ARCH}-${VERSION}-cluster.tar.gz"
+            curl -fSL "https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/${VERSION}/${TAR_NAME}" -o "$TAR_NAME"
+
+            mkdir -p "cluster_${ARCH}"
+            tar -xzf "$TAR_NAME" -C "cluster_${ARCH}"
+
+            ./victoria-enterprise-lite-linux-${ARCH} patch "./cluster_${ARCH}/vminsert-prod"
+            ./victoria-enterprise-lite-linux-${ARCH} patch "./cluster_${ARCH}/vmselect-prod"
+            ./victoria-enterprise-lite-linux-${ARCH} patch "./cluster_${ARCH}/vmstorage-prod"
+
+            rm -f "$TAR_NAME"
+            tar -czf "$TAR_NAME" -C "cluster_${ARCH}" vminsert-prod vmselect-prod vmstorage-prod
+            rm -rf "cluster_${ARCH}" "./victoria-enterprise-lite-linux-${ARCH}"
+          done
+
+      # 10. Tự động tạo Git Tag và GitHub Release tương ứng với version 
       - name: Create GitHub Release and Tag
         if: steps.check_release.outputs.exists == 'false'
         uses: softprops/action-gh-release@v2
@@ -138,9 +165,16 @@ jobs:
             Job Done:
             - **VictoriaMetrics Version**: `${{ matrix.version }}`
             - **Docker Image**: `h2372/victoriametrics-enterprise:${{ matrix.version }}-enterprise`
-            - **Binaries**: `victoria-metrics-prod-amd64`, `victoria-metrics-prod-arm64`
+            - **Single Binaries**:
+              - `victoria-metrics-linux-amd64-${{ matrix.version }}-enterprise`
+              - `victoria-metrics-linux-arm64-${{ matrix.version }}-enterprise`
+            - **Cluster Binaries**:
+              - `victoria-metrics-linux-amd64-${{ matrix.version }}-cluster.tar.gz`
+              - `victoria-metrics-linux-arm64-${{ matrix.version }}-cluster.tar.gz`
           files: |
-            victoria-metrics-prod-amd64
-            victoria-metrics-prod-arm64
+            victoria-metrics-linux-amd64-${{ matrix.version }}-enterprise
+            victoria-metrics-linux-arm64-${{ matrix.version }}-enterprise
+            victoria-metrics-linux-amd64-${{ matrix.version }}-cluster.tar.gz
+            victoria-metrics-linux-arm64-${{ matrix.version }}-cluster.tar.gz
           draft: false
           prerelease: false
