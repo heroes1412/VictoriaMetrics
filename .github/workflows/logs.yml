@@ -11,28 +11,37 @@ jobs:
   get-versions:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.fetch.outputs.version }}
+      versions: ${{ steps.fetch.outputs.versions }}
+      latest_version: ${{ steps.fetch.outputs.latest_version }}
     steps:
-      - name: Fetch latest VictoriaLogs version
+      - name: Fetch 2 latest VictoriaLogs versions
         id: fetch
         run: |
           # Thêm Authorization token để tránh bị dính 403 GitHub API rate limit
           RELEASES_JSON=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/VictoriaMetrics/VictoriaLogs/releases)
           
-          # Lấy 1 version mới nhất (không phải draft / prerelease)
-          LATEST=$(echo "$RELEASES_JSON" | jq -r '[ .[] | select(.prerelease == false and .draft == false) | .tag_name ][0]')
+          # Lấy 2 version mới nhất (không phải draft / prerelease)
+          VERSIONS=$(echo "$RELEASES_JSON" | jq -c '[ .[] | select(.prerelease == false and .draft == false) | .tag_name ] | .[:2]')
+          LATEST=$(echo "$VERSIONS" | jq -r '.[0]')
 
           if [ -z "$LATEST" ] || [ "$LATEST" = "null" ]; then
-            echo "Error: Could not fetch latest version"
+            echo "Error: Could not fetch releases"
             exit 1
           fi
 
-          echo "version=$LATEST" >> $GITHUB_OUTPUT
+          echo "versions=$VERSIONS" >> $GITHUB_OUTPUT
+          echo "latest_version=$LATEST" >> $GITHUB_OUTPUT
+          echo "Top 2 VictoriaLogs Versions: $VERSIONS"
           echo "Latest VictoriaLogs Version: $LATEST"
 
   build-and-push:
     needs: get-versions
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        version: ${{ fromJson(needs.get-versions.outputs.versions) }}
     # Thêm permissions để GitHub Actions có quyền đọc/ghi Release và Contents
     permissions:
       contents: write
@@ -42,7 +51,7 @@ jobs:
       - name: Check if Release Exists
         id: check_release
         run: |
-          VERSION="${{ needs.get-versions.outputs.version }}"
+          VERSION="${{ matrix.version }}"
           # Dùng GitHub CLI (gh) để kiểm tra release, nếu tồn tại trả về 0, ngược lại trả về khác 0
           if gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" &>/dev/null; then
             echo "exists=true" >> $GITHUB_OUTPUT
@@ -58,10 +67,9 @@ jobs:
       - name: Download Remote Dockerfile
         if: steps.check_release.outputs.exists == 'false'
         run: |
-          VERSION="${{ needs.get-versions.outputs.version }}"
           curl --retry 3 --retry-delay 2 --retry-connrefused -fSL "https://github.com/heroes1412/VictoriaMetrics/releases/download/tool/Dockerfile-log" -o Dockerfile
-          sed -i "s|victoriametrics/victoria-logs:latest|victoriametrics/victoria-logs:${VERSION}-enterprise|g" Dockerfile
-          echo "Đã tải và cập nhật Dockerfile cho version $VERSION thành công!"
+          sed -i "s|victoriametrics/victoria-logs:latest|victoriametrics/victoria-logs:${{ matrix.version }}-enterprise|g" Dockerfile
+          echo "Đã tải và cập nhật Dockerfile cho version ${{ matrix.version }} thành công!"
           head -n 5 Dockerfile
 
       # 3. Đăng nhập vào Docker Hub
@@ -82,13 +90,17 @@ jobs:
         if: steps.check_release.outputs.exists == 'false'
         uses: docker/setup-buildx-action@v3
 
-      # 6. Xác định Docker Tags (gắn tag :latest cho version mới nhất)
+      # 6. Xác định Docker Tags (gắn tag :latest nếu là version mới nhất)
       - name: Determine Docker Tags
         if: steps.check_release.outputs.exists == 'false'
         id: docker_tags
         run: |
-          VERSION="${{ needs.get-versions.outputs.version }}"
-          TAGS="h2372/victorialogs-enterprise:${VERSION}-enterprise,h2372/victorialogs-enterprise:latest"
+          VERSION="${{ matrix.version }}"
+          LATEST="${{ needs.get-versions.outputs.latest_version }}"
+          TAGS="h2372/victorialogs-enterprise:${VERSION}-enterprise"
+          if [ "$VERSION" = "$LATEST" ]; then
+            TAGS="${TAGS},h2372/victorialogs-enterprise:latest"
+          fi
           echo "tags=$TAGS" >> $GITHUB_OUTPUT
           echo "Generated Docker Tags: $TAGS"
 
@@ -107,7 +119,7 @@ jobs:
       - name: Extract binaries from Docker image
         if: steps.check_release.outputs.exists == 'false'
         run: |
-          VERSION="${{ needs.get-versions.outputs.version }}"
+          VERSION="${{ matrix.version }}"
           IMAGE="h2372/victorialogs-enterprise:${VERSION}-enterprise"
 
           echo "Trích xuất binary cho linux/amd64..."
@@ -128,17 +140,17 @@ jobs:
         if: steps.check_release.outputs.exists == 'false'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.get-versions.outputs.version }}
-          name: Logs ${{ needs.get-versions.outputs.version }}
+          tag_name: ${{ matrix.version }}
+          name: Logs ${{ matrix.version }}
           body: |
             Job Done:
-            - **VictoriaLogs Version**: `${{ needs.get-versions.outputs.version }}`
-            - **Docker Image**: `h2372/victorialogs-enterprise:${{ needs.get-versions.outputs.version }}-enterprise`
+            - **VictoriaLogs Version**: `${{ matrix.version }}`
+            - **Docker Image**: `h2372/victorialogs-enterprise:${{ matrix.version }}-enterprise`
             - **Binaries**:
-              - `victoria-logs-linux-amd64-${{ needs.get-versions.outputs.version }}-enterprise`
-              - `victoria-logs-linux-arm64-${{ needs.get-versions.outputs.version }}-enterprise`
+              - `victoria-logs-linux-amd64-${{ matrix.version }}-enterprise`
+              - `victoria-logs-linux-arm64-${{ matrix.version }}-enterprise`
           files: |
-            victoria-logs-linux-amd64-${{ needs.get-versions.outputs.version }}-enterprise
-            victoria-logs-linux-arm64-${{ needs.get-versions.outputs.version }}-enterprise
+            victoria-logs-linux-amd64-${{ matrix.version }}-enterprise
+            victoria-logs-linux-arm64-${{ matrix.version }}-enterprise
           draft: false
           prerelease: false
