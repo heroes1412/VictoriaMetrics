@@ -141,13 +141,14 @@ jobs:
             echo "Đang xử lý cluster binary cho kiến trúc $ARCH..."
             echo "=================================================="
 
-            echo "Tải công cụ patch: https://github.com/heroes1412/VictoriaMetrics/releases/download/tool/victoria-enterprise-lite-linux-${ARCH}"
+            echo "Tải công cụ patch..."
             curl --retry 3 --retry-delay 2 --retry-connrefused -fSL "https://github.com/heroes1412/VictoriaMetrics/releases/download/tool/victoria-enterprise-lite-linux-${ARCH}" -o "./victoria-enterprise-lite-linux-${ARCH}"
             chmod +x "./victoria-enterprise-lite-linux-${ARCH}"
 
-            TAR_NAME="victoria-metrics-linux-${ARCH}-${VERSION}-cluster.tar.gz"
-            echo "Tải cluster archive: https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/${VERSION}/${TAR_NAME}"
-            curl --retry 3 --retry-delay 2 --retry-connrefused -fSL "https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/${VERSION}/${TAR_NAME}" -o "$TAR_NAME"
+            TAR_NAME="victoria-metrics-linux-${ARCH}-${VERSION}-enterprise-cluster.tar.gz"
+            URL="https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/${VERSION}/${TAR_NAME}"
+            echo "Tải cluster archive: $URL"
+            curl --retry 3 --retry-delay 2 --retry-connrefused -fSL "$URL" -o "$TAR_NAME"
 
             mkdir -p "cluster_${ARCH}"
             tar -xzf "$TAR_NAME" -C "cluster_${ARCH}"
@@ -178,12 +179,12 @@ jobs:
               - `victoria-metrics-linux-amd64-${{ matrix.version }}-enterprise`
               - `victoria-metrics-linux-arm64-${{ matrix.version }}-enterprise`
             - **Cluster Binaries**:
-              - `victoria-metrics-linux-amd64-${{ matrix.version }}-cluster.tar.gz`
-              - `victoria-metrics-linux-arm64-${{ matrix.version }}-cluster.tar.gz`
+              - `victoria-metrics-linux-amd64-${{ matrix.version }}-enterprise-cluster.tar.gz`
+              - `victoria-metrics-linux-arm64-${{ matrix.version }}-enterprise-cluster.tar.gz`
           files: |
             victoria-metrics-linux-amd64-${{ matrix.version }}-enterprise
             victoria-metrics-linux-arm64-${{ matrix.version }}-enterprise
-            victoria-metrics-linux-amd64-${{ matrix.version }}-cluster.tar.gz
-            victoria-metrics-linux-arm64-${{ matrix.version }}-cluster.tar.gz
+            victoria-metrics-linux-amd64-${{ matrix.version }}-enterprise-cluster.tar.gz
+            victoria-metrics-linux-arm64-${{ matrix.version }}-enterprise-cluster.tar.gz
           draft: false
           prerelease: false
